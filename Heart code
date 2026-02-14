@@ -1,0 +1,160 @@
+// --- CONFIGURATION ---
+const REEL_WIDTH = 1080;
+const REEL_HEIGHT = 1920;
+// Scale down for smoother performance in browser editor if needed
+const CANVAS_SCALE = 0.5; 
+
+let numParticles = 2000; // How many particles
+let noiseScale = 0.01; // How "zoomed in" the flow pattern is
+let flowStrength = 0.5; // How hard the flow pushes particles
+let heartSizeScale = 15; // Size of the heart container
+
+let particles = [];
+let zOff = 0; // Time dimension for noise animation
+let heartPoints = []; // To store the outline of the heart
+
+function setup() {
+  // Create canvas with Reel aspect ratio (scaled for performance)
+  createCanvas(REEL_WIDTH * CANVAS_SCALE, REEL_HEIGHT * CANVAS_SCALE);
+  colorMode(HSB, 360, 100, 100, 100); // Use HSB for flowing colors
+  noStroke();
+
+  // Initialize Particles
+  for (let i = 0; i < numParticles; i++) {
+    particles.push(new Particle());
+  }
+
+  // Pre-calculate heart outline for drawing the border
+  calculateHeartOutline();
+}
+
+function draw() {
+  // --- 1. Create Trails Effect ---
+  // Draw a semi-transparent black background over the previous frame
+  fill(0, 0, 0, 10); // The last value (10) controls trail length (lower = longer trails)
+  rect(0, 0, width, height);
+
+  // --- 2. Update and Draw Particles ---
+  for (let i = 0; i < particles.length; i++) {
+    particles[i].followFlowField();
+    particles[i].update();
+    particles[i].edges();
+    particles[i].show();
+  }
+  
+  // Increment time for the noise field so it moves
+  zOff += 0.005;
+
+  // --- 3. Draw the Heart Outline and Text ---
+  drawHeartBorder();
+  drawGMText();
+}
+
+// --- Helper Functions ---
+
+function calculateHeartOutline() {
+  // Using parametric equations for a heart shape
+  for (let angle = 0; angle < TWO_PI; angle += 0.05) {
+    // Standard Heart Formulas
+    let x = 16 * pow(sin(angle), 3);
+    let y = 13 * cos(angle) - 5 * cos(2 * angle) - 2 * cos(3 * angle) - cos(4 * angle);
+    
+    // Scale and center coordinates
+    x = x * heartSizeScale + width / 2;
+    // Invert Y because p5 y-axis goes down
+    y = -y * heartSizeScale + height / 2 + (50 * CANVAS_SCALE); 
+    heartPoints.push(createVector(x, y));
+  }
+}
+
+function drawHeartBorder() {
+  noFill();
+  strokeWeight(3 * CANVAS_SCALE);
+  // A glowing reddish-pink stroke
+  stroke(330, 80, 100, 50); 
+  
+  beginShape();
+  for (let pt of heartPoints) {
+    vertex(pt.x, pt.y);
+  }
+  endShape(CLOSE);
+  noStroke(); // Reset stroke for particles
+}
+
+function drawGMText() {
+  textAlign(CENTER, CENTER);
+  textSize(100 * CANVAS_SCALE);
+  textStyle(BOLD);
+  
+  // Subtle Glow effect for text (draw slightly offset layers)
+  fill(330, 60, 100, 30); // Pinkish glow
+  text("GM", width / 2 + 2, height / 2 + 2 + (50 * CANVAS_SCALE));
+  
+  fill(0, 0, 100); // White main text
+  text("GM", width / 2, height / 2 + (50 * CANVAS_SCALE));
+}
+
+
+// --- PARTICLE CLASS Definitions ---
+class Particle {
+  constructor() {
+    // Start particles near the center to help fill the heart immediately
+    this.pos = createVector(random(width/2 - 100, width/2 + 100), random(height/2 - 100, height/2 + 100));
+    this.vel = createVector(0, 0);
+    this.acc = createVector(0, 0);
+    this.maxSpeed = random(2, 4) * CANVAS_SCALE;
+    // Give each particle a slightly different color hue based on reddish/purple tones
+    this.hue = random(300, 360); 
+  }
+
+  followFlowField() {
+    // Calculate the noise value based on particle position and time
+    let n = noise(this.pos.x * noiseScale, this.pos.y * noiseScale, zOff);
+    // Map noise (0 to 1) to an angle (0 to TWO_PI * 2 for more swirling)
+    let angle = n * TWO_PI * 2;
+    
+    // Create a force vector from that angle
+    let force = p5.Vector.fromAngle(angle);
+    force.setMag(flowStrength);
+    this.applyForce(force);
+  }
+
+  applyForce(force) {
+    this.acc.add(force);
+  }
+
+  update() {
+    this.vel.add(this.acc);
+    this.vel.limit(this.maxSpeed);
+    this.pos.add(this.vel);
+    this.acc.mult(0); // Reset acceleration every frame
+  }
+  
+  // Soft containment: keeps particles loosely within the heart area
+  edges() {
+    let center = createVector(width/2, height/2 + (50*CANVAS_SCALE));
+    let d = dist(this.pos.x, this.pos.y, center.x, center.y);
+    
+    // If particle gets too far from center, gently steer it back
+    if (d > 250 * CANVAS_SCALE) {
+       let steer = p5.Vector.sub(center, this.pos);
+       steer.setMag(0.5); // Gentle push back to center
+       this.applyForce(steer);
+    }
+    
+    // Hard reset if they somehow escape way off screen
+    if (this.pos.x < -50 || this.pos.x > width+50 || this.pos.y < -50 || this.pos.y > height+50) {
+       this.pos = createVector(random(width/2 - 50, width/2 + 50), random(height/2 - 50, height/2 + 50));
+       this.vel.mult(0);
+    }
+  }
+
+  show() {
+    // Color changes slightly based on speed
+    let brightness = map(this.vel.mag(), 0, this.maxSpeed, 70, 100);
+    fill(this.hue, 80, brightness, 80);
+    // Size changes slightly based on speed
+    let size = map(this.vel.mag(), 0, this.maxSpeed, 2, 5) * CANVAS_SCALE;
+    ellipse(this.pos.x, this.pos.y, size);
+  }
+}
